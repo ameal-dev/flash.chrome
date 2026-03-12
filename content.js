@@ -10,6 +10,7 @@ let searchInput = null;
 let currentMatches = [];
 let hintLabels = [];
 let hintInput = "";
+let scrollHandler = null;
 
 function activate() {
   if (state !== "INACTIVE") return;
@@ -40,10 +41,17 @@ function activate() {
   searchInput.addEventListener("input", handleSearchInput);
   searchInput.focus();
 
+  scrollHandler = () => deactivate();
+  window.addEventListener("scroll", scrollHandler, { once: true });
+
   state = "SEARCH";
 }
 
 function deactivate() {
+  if (scrollHandler) {
+    window.removeEventListener("scroll", scrollHandler);
+    scrollHandler = null;
+  }
   if (shadowHost && shadowHost.parentNode) {
     shadowHost.parentNode.removeChild(shadowHost);
   }
