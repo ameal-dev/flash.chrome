@@ -395,5 +395,7 @@ function getShadowStyles() {
   `;
 }
 
-// Single capturing listener — registered before Vimium can interfere
-document.addEventListener("keydown", handleKey, true);
+// Register on window (not document) in capture phase.
+// Capture order is window → document → elements.
+// Vimium registers on document, so window fires first.
+window.addEventListener("keydown", handleKey, true);
