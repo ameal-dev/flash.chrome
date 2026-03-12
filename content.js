@@ -14,6 +14,7 @@ let scrollHandler = null;
 let vimiumDecoy = null;
 let visualAnchor = null; // {node, offset} where caret was placed
 let statusBar = null;
+let caretIndicator = null;
 
 function activate() {
   if (state !== "INACTIVE") return;
@@ -55,7 +56,7 @@ function activate() {
 }
 
 function enterVisualMode(textNode, offset) {
-  // Clean up search UI but keep shadowHost for status bar
+  // Clean up search UI but keep shadowHost for status bar + caret
   clearOverlays();
   const searchBar = shadowRoot.querySelector(".fy-search-bar");
   if (searchBar) searchBar.remove();
@@ -64,6 +65,18 @@ function enterVisualMode(textNode, offset) {
   const selection = window.getSelection();
   selection.collapse(textNode, offset);
   visualAnchor = { node: textNode, offset };
+
+  // Show blinking caret indicator at jump target
+  const range = document.createRange();
+  range.setStart(textNode, offset);
+  range.setEnd(textNode, offset);
+  const rect = range.getBoundingClientRect();
+  caretIndicator = document.createElement("div");
+  caretIndicator.className = "fy-caret-indicator";
+  caretIndicator.style.top = `${rect.top}px`;
+  caretIndicator.style.left = `${rect.left}px`;
+  caretIndicator.style.height = `${rect.height || 18}px`;
+  shadowRoot.appendChild(caretIndicator);
 
   // Show status bar
   statusBar = document.createElement("div");
@@ -95,6 +108,7 @@ function deactivate() {
   hintInput = "";
   visualAnchor = null;
   statusBar = null;
+  caretIndicator = null;
   state = "INACTIVE";
 }
 
@@ -214,7 +228,7 @@ function yankSelection(selection) {
 
 function showYankFeedback(charCount) {
   const el = document.createElement("div");
-  el.style.cssText = "position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:2147483647;padding:6px 16px;background:#1a1a2e;color:#e2b714;font-family:monospace;font-size:14px;border-bottom-left-radius:8px;border-bottom-right-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,0.4);";
+  el.style.cssText = "position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:2147483647;padding:8px 20px;background:#faf8f5;color:#2c2c2c;font-family:monospace;font-size:14px;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,0.15),0 1px 4px rgba(0,0,0,0.1);";
   el.textContent = `Yanked ${charCount} chars`;
   document.body.appendChild(el);
   setTimeout(() => el.remove(), 1200);
@@ -437,40 +451,54 @@ function getShadowStyles() {
   return `
     .fy-search-bar {
       position: fixed;
-      top: 0;
+      top: 10px;
       left: 50%;
       transform: translateX(-50%);
       z-index: 2147483647;
-      padding: 8px 12px;
-      background: #1a1a2e;
-      border-bottom-left-radius: 8px;
-      border-bottom-right-radius: 8px;
-      box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+      padding: 10px 16px;
+      background: #faf8f5;
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.15), 0 1px 4px rgba(0,0,0,0.1);
       font-family: monospace;
       font-size: 16px;
-      color: #e0e0e0;
-      min-width: 200px;
+      color: #2c2c2c;
+      min-width: 220px;
       text-align: left;
+      display: flex;
+      align-items: center;
+      gap: 0;
     }
     .fy-search-display {
-      color: #e0e0e0;
+      color: #2c2c2c;
     }
     .fy-cursor {
       display: inline-block;
-      width: 8px;
-      height: 18px;
-      background: #e2b714;
+      width: 2px;
+      height: 20px;
+      background: #d4860b;
       vertical-align: text-bottom;
       animation: fy-blink 1s step-end infinite;
+      border-radius: 1px;
+      margin-left: 1px;
     }
     @keyframes fy-blink {
+      0%, 100% { opacity: 1; }
       50% { opacity: 0; }
     }
+    .fy-caret-indicator {
+      position: fixed;
+      z-index: 2147483647;
+      width: 2px;
+      background: #d4860b;
+      border-radius: 1px;
+      pointer-events: none;
+      animation: fy-blink 1s step-end infinite;
+    }
     .fy-no-matches {
-      color: #ff6b6b;
+      color: #c44;
       font-family: monospace;
       font-size: 12px;
-      padding: 4px 0 0;
+      padding: 4px 0 0 8px;
     }
     .fy-hint-label {
       position: fixed;
@@ -494,25 +522,24 @@ function getShadowStyles() {
       border-radius: 2px;
     }
     .fy-overflow-msg {
-      color: #888;
+      color: #999;
       font-family: monospace;
       font-size: 11px;
-      padding: 4px 0 0;
+      padding: 4px 0 0 8px;
     }
     .fy-status-bar {
       position: fixed;
-      bottom: 0;
+      bottom: 10px;
       left: 50%;
       transform: translateX(-50%);
       z-index: 2147483647;
-      padding: 6px 16px;
-      background: #1a1a2e;
-      color: #e2b714;
+      padding: 8px 20px;
+      background: #faf8f5;
+      color: #2c2c2c;
       font-family: monospace;
       font-size: 13px;
-      border-top-left-radius: 8px;
-      border-top-right-radius: 8px;
-      box-shadow: 0 -2px 12px rgba(0,0,0,0.4);
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.15), 0 1px 4px rgba(0,0,0,0.1);
       white-space: nowrap;
     }
   `;
