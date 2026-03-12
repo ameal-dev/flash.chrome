@@ -362,8 +362,10 @@ function getShadowStyles() {
   `;
 }
 
-chrome.runtime.onMessage.addListener((message) => {
-  if (message.action === "activate") {
+document.addEventListener("keydown", (e) => {
+  if (e.key === "b" && e.metaKey && e.ctrlKey && e.altKey && e.shiftKey) {
+    e.preventDefault();
+    e.stopPropagation();
     if (state === "INACTIVE") {
       activate();
     } else {
