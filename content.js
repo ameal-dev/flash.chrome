@@ -197,6 +197,14 @@ function selectMatch(match) {
   deactivate();
   const selection = window.getSelection();
   selection.collapse(textNode, offset);
+
+  // Trigger Vimium's visual mode by simulating 'v' keypress
+  // Small delay to let Vimium exit insert mode after decoy removal
+  setTimeout(() => {
+    document.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "v", code: "KeyV", keyCode: 86, bubbles: true,
+    }));
+  }, 50);
 }
 
 function clearOverlays() {
