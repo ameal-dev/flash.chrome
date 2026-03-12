@@ -56,6 +56,75 @@ function handleSearchKeydown(e) {
   }
 }
 
+const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT"]);
+
+function isElementVisible(el) {
+  if (!el || el.nodeType !== Node.ELEMENT_NODE) return false;
+  const style = window.getComputedStyle(el);
+  if (style.display === "none" || style.visibility === "hidden") return false;
+  const rect = el.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+function isInViewport(rect) {
+  return (
+    rect.bottom > 0 &&
+    rect.top < window.innerHeight &&
+    rect.right > 0 &&
+    rect.left < window.innerWidth
+  );
+}
+
+function findVisibleMatches(query) {
+  const matches = [];
+  const lowerQuery = query.toLowerCase();
+  const walker = document.createTreeWalker(
+    document.body,
+    NodeFilter.SHOW_TEXT,
+    {
+      acceptNode(node) {
+        const parent = node.parentElement;
+        if (!parent) return NodeFilter.FILTER_REJECT;
+        if (SKIP_TAGS.has(parent.tagName)) return NodeFilter.FILTER_REJECT;
+        if (shadowHost && shadowHost.contains(node)) return NodeFilter.FILTER_REJECT;
+        if (!isElementVisible(parent)) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    }
+  );
+
+  let textNode;
+  while ((textNode = walker.nextNode())) {
+    const text = textNode.textContent.toLowerCase();
+    let startIndex = 0;
+    while (true) {
+      const index = text.indexOf(lowerQuery, startIndex);
+      if (index === -1) break;
+
+      const range = document.createRange();
+      range.setStart(textNode, index);
+      range.setEnd(textNode, index + query.length);
+      const rect = range.getBoundingClientRect();
+
+      if (isInViewport(rect)) {
+        matches.push({ textNode, offset: index, range, rect });
+      }
+
+      startIndex = index + 1;
+    }
+  }
+
+  // Sort top-to-bottom, left-to-right
+  matches.sort((a, b) => {
+    if (Math.abs(a.rect.top - b.rect.top) < 5) {
+      return a.rect.left - b.rect.left;
+    }
+    return a.rect.top - b.rect.top;
+  });
+
+  return matches;
+}
+
 function handleSearchInput(e) {
   // Will be implemented in Task 5
 }
