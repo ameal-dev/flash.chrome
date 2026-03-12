@@ -363,7 +363,7 @@ function getShadowStyles() {
 }
 
 document.addEventListener("keydown", (e) => {
-  if (e.key === "b" && e.metaKey && e.ctrlKey && e.altKey && e.shiftKey) {
+  if (e.code === "KeyB" && e.metaKey && e.ctrlKey && e.altKey && e.shiftKey) {
     e.preventDefault();
     e.stopPropagation();
     if (state === "INACTIVE") {
