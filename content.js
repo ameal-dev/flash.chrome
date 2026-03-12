@@ -11,6 +11,7 @@ let currentMatches = [];
 let hintLabels = [];
 let hintInput = "";
 let scrollHandler = null;
+let vimiumDecoy = null;
 
 function activate() {
   if (state !== "INACTIVE") return;
@@ -39,6 +40,14 @@ function activate() {
   document.body.appendChild(shadowHost);
 
   searchQuery = "";
+
+  // Create a real input in the page DOM so Vimium sees a focused
+  // input and enters insert mode (stops intercepting keys)
+  vimiumDecoy = document.createElement("input");
+  vimiumDecoy.style.cssText = "position:fixed;top:-100px;left:-100px;width:1px;height:1px;opacity:0;pointer-events:none;";
+  document.body.appendChild(vimiumDecoy);
+  vimiumDecoy.focus();
+
   scrollHandler = () => deactivate();
   window.addEventListener("scroll", scrollHandler, { once: true });
 
@@ -50,6 +59,10 @@ function deactivate() {
     window.removeEventListener("scroll", scrollHandler);
     scrollHandler = null;
   }
+  if (vimiumDecoy && vimiumDecoy.parentNode) {
+    vimiumDecoy.parentNode.removeChild(vimiumDecoy);
+  }
+  vimiumDecoy = null;
   if (shadowHost && shadowHost.parentNode) {
     shadowHost.parentNode.removeChild(shadowHost);
   }
