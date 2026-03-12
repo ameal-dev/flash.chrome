@@ -159,29 +159,40 @@ function handleKey(e) {
         hintInput = hintInput.slice(0, -1);
         updateHintHighlights();
       } else {
-        exitHintMode();
+        // Backspace into search query
+        searchQuery = searchQuery.slice(0, -1);
+        updateSearchDisplay();
+        onQueryChanged();
       }
       return;
     }
 
-    const char = e.key.toLowerCase();
-    if (!HINT_CHARS.includes(char)) return;
+    if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const char = e.key.toLowerCase();
 
-    hintInput += char;
+      // If it's a hint character and matches a current hint prefix, treat as hint input
+      if (HINT_CHARS.includes(char)) {
+        const candidateHint = hintInput + char;
+        const exactMatch = hintLabels.findIndex((label) => label === candidateHint);
+        if (exactMatch !== -1) {
+          selectMatch(currentMatches[exactMatch]);
+          return;
+        }
 
-    const exactMatch = hintLabels.findIndex((label) => label === hintInput);
-    if (exactMatch !== -1) {
-      selectMatch(currentMatches[exactMatch]);
-      return;
+        const hasPrefix = hintLabels.some((label) => label.startsWith(candidateHint));
+        if (hasPrefix) {
+          hintInput = candidateHint;
+          updateHintHighlights();
+          return;
+        }
+      }
+
+      // Not a hint char or no matching hint prefix — treat as continued search
+      hintInput = "";
+      searchQuery += e.key;
+      updateSearchDisplay();
+      onQueryChanged();
     }
-
-    const hasPrefix = hintLabels.some((label) => label.startsWith(hintInput));
-    if (!hasPrefix) {
-      hintInput = hintInput.slice(0, -1);
-      return;
-    }
-
-    updateHintHighlights();
     return;
   }
 
