@@ -1,12 +1,12 @@
 const HINT_CHARS = "asdfghjkl";
 const MIN_SEARCH_LENGTH = 2;
-
 const MAX_HINTS = 81;
 
 let state = "INACTIVE";
 let shadowHost = null;
 let shadowRoot = null;
-let searchInput = null;
+let searchDisplay = null;
+let searchQuery = "";
 let currentMatches = [];
 let hintLabels = [];
 let hintInput = "";
@@ -26,44 +26,26 @@ function activate() {
   const searchBar = document.createElement("div");
   searchBar.className = "fy-search-bar";
 
-  searchInput = document.createElement("input");
-  searchInput.className = "fy-search-input";
-  searchInput.type = "text";
-  searchInput.placeholder = "Flash Yank...";
-  searchInput.setAttribute("autocomplete", "off");
-  searchInput.setAttribute("spellcheck", "false");
+  searchDisplay = document.createElement("span");
+  searchDisplay.className = "fy-search-display";
+  searchDisplay.textContent = "";
 
-  searchBar.appendChild(searchInput);
+  const cursor = document.createElement("span");
+  cursor.className = "fy-cursor";
+
+  searchBar.appendChild(searchDisplay);
+  searchBar.appendChild(cursor);
   shadowRoot.appendChild(searchBar);
   document.body.appendChild(shadowHost);
 
-  searchInput.addEventListener("input", handleSearchInput);
-  document.addEventListener("keydown", suppressKeydown, true);
-  document.addEventListener("keypress", suppressEvent, true);
-  document.addEventListener("keyup", suppressEvent, true);
-  searchInput.focus();
-
+  searchQuery = "";
   scrollHandler = () => deactivate();
   window.addEventListener("scroll", scrollHandler, { once: true });
 
   state = "SEARCH";
 }
 
-function suppressKeydown(e) {
-  if (state === "INACTIVE") return;
-  e.stopImmediatePropagation();
-  handleSearchKeydown(e);
-}
-
-function suppressEvent(e) {
-  if (state === "INACTIVE") return;
-  e.stopImmediatePropagation();
-}
-
 function deactivate() {
-  document.removeEventListener("keydown", suppressKeydown, true);
-  document.removeEventListener("keypress", suppressEvent, true);
-  document.removeEventListener("keyup", suppressEvent, true);
   if (scrollHandler) {
     window.removeEventListener("scroll", scrollHandler);
     scrollHandler = null;
@@ -73,26 +55,61 @@ function deactivate() {
   }
   shadowHost = null;
   shadowRoot = null;
-  searchInput = null;
+  searchDisplay = null;
+  searchQuery = "";
+  currentMatches = [];
+  hintLabels = [];
+  hintInput = "";
   state = "INACTIVE";
 }
 
-function handleSearchKeydown(e) {
-  if (e.key === "Escape") {
+function handleKey(e) {
+  // Activation toggle — always listen
+  if (e.code === "KeyB" && e.metaKey && e.ctrlKey && e.altKey && e.shiftKey) {
     e.preventDefault();
+    e.stopImmediatePropagation();
+    if (state === "INACTIVE") {
+      activate();
+    } else {
+      deactivate();
+    }
+    return;
+  }
+
+  if (state === "INACTIVE") return;
+
+  // From here, we're active — block everything from reaching Vimium
+  e.preventDefault();
+  e.stopImmediatePropagation();
+
+  if (e.key === "Escape") {
     deactivate();
     return;
   }
 
-  if (state === "HINT_SELECTION") {
-    e.preventDefault();
+  if (state === "SEARCH") {
+    if (e.key === "Backspace") {
+      searchQuery = searchQuery.slice(0, -1);
+      updateSearchDisplay();
+      onQueryChanged();
+      return;
+    }
 
+    // Only accept single printable characters
+    if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      searchQuery += e.key;
+      updateSearchDisplay();
+      onQueryChanged();
+    }
+    return;
+  }
+
+  if (state === "HINT_SELECTION") {
     if (e.key === "Backspace") {
       if (hintInput.length > 0) {
         hintInput = hintInput.slice(0, -1);
         updateHintHighlights();
       } else {
-        // Return to search mode (keep current query intact)
         exitHintMode();
       }
       return;
@@ -109,7 +126,6 @@ function handleSearchKeydown(e) {
       return;
     }
 
-    // Check if input is a prefix of any remaining label
     const hasPrefix = hintLabels.some((label) => label.startsWith(hintInput));
     if (!hasPrefix) {
       hintInput = hintInput.slice(0, -1);
@@ -118,6 +134,36 @@ function handleSearchKeydown(e) {
 
     updateHintHighlights();
   }
+}
+
+function updateSearchDisplay() {
+  if (!searchDisplay) return;
+  searchDisplay.textContent = searchQuery || "";
+}
+
+function onQueryChanged() {
+  if (searchQuery.length < MIN_SEARCH_LENGTH) {
+    if (state === "HINT_SELECTION") {
+      exitHintMode();
+    }
+    clearOverlays();
+    return;
+  }
+
+  const matches = findVisibleMatches(searchQuery);
+  if (matches.length === 0) {
+    clearOverlays();
+    const msg = document.createElement("div");
+    msg.className = "fy-no-matches";
+    msg.textContent = "No matches";
+    shadowRoot.querySelector(".fy-search-bar").appendChild(msg);
+    if (state === "HINT_SELECTION") {
+      exitHintMode();
+    }
+    return;
+  }
+
+  enterHintMode(matches);
 }
 
 function updateHintHighlights() {
@@ -133,9 +179,11 @@ function updateHintHighlights() {
 }
 
 function selectMatch(match) {
+  const textNode = match.textNode;
+  const offset = match.offset;
   deactivate();
   const selection = window.getSelection();
-  selection.collapse(match.textNode, match.offset);
+  selection.collapse(textNode, offset);
 }
 
 function clearOverlays() {
@@ -151,7 +199,6 @@ function renderHints(matches) {
     const match = matches[i];
     const rect = match.rect;
 
-    // Highlight overlay
     const highlight = document.createElement("div");
     highlight.className = "fy-highlight";
     highlight.style.top = `${rect.top}px`;
@@ -160,7 +207,6 @@ function renderHints(matches) {
     highlight.style.height = `${rect.height}px`;
     shadowRoot.appendChild(highlight);
 
-    // Hint label
     const label = document.createElement("div");
     label.className = "fy-hint-label";
     label.textContent = hintLabels[i].toUpperCase();
@@ -182,7 +228,6 @@ function enterHintMode(matches) {
   currentMatches = matches;
   hintInput = "";
   renderHints(matches);
-  searchInput.readOnly = true;
   state = "HINT_SELECTION";
 }
 
@@ -191,7 +236,6 @@ function exitHintMode() {
   currentMatches = [];
   hintLabels = [];
   hintInput = "";
-  searchInput.readOnly = false;
   state = "SEARCH";
 }
 
@@ -253,7 +297,6 @@ function findVisibleMatches(query) {
     }
   }
 
-  // Sort top-to-bottom, left-to-right
   matches.sort((a, b) => {
     if (Math.abs(a.rect.top - b.rect.top) < 5) {
       return a.rect.left - b.rect.left;
@@ -268,13 +311,11 @@ function generateHintLabels(count) {
   const labels = [];
   const chars = HINT_CHARS.split("");
 
-  // Single-char labels first
   for (const c of chars) {
     labels.push(c);
     if (labels.length >= count) return labels;
   }
 
-  // Two-char labels
   for (const c1 of chars) {
     for (const c2 of chars) {
       labels.push(c1 + c2);
@@ -285,28 +326,6 @@ function generateHintLabels(count) {
   return labels;
 }
 
-function handleSearchInput(e) {
-  const query = searchInput.value;
-  if (query.length < MIN_SEARCH_LENGTH) {
-    if (state === "HINT_SELECTION") {
-      exitHintMode();
-    }
-    return;
-  }
-
-  const matches = findVisibleMatches(query);
-  if (matches.length === 0) {
-    clearOverlays();
-    const msg = document.createElement("div");
-    msg.className = "fy-no-matches";
-    msg.textContent = "No matches";
-    shadowRoot.querySelector(".fy-search-bar").appendChild(msg);
-    return;
-  }
-
-  enterHintMode(matches);
-}
-
 function getShadowStyles() {
   return `
     .fy-search-bar {
@@ -315,35 +334,36 @@ function getShadowStyles() {
       left: 50%;
       transform: translateX(-50%);
       z-index: 2147483647;
-      padding: 8px;
+      padding: 8px 12px;
       background: #1a1a2e;
       border-bottom-left-radius: 8px;
       border-bottom-right-radius: 8px;
       box-shadow: 0 2px 12px rgba(0,0,0,0.4);
-    }
-    .fy-search-input {
       font-family: monospace;
       font-size: 16px;
-      padding: 6px 12px;
-      width: 220px;
-      border: 2px solid #e2b714;
-      border-radius: 4px;
-      background: #0f0f1a;
       color: #e0e0e0;
-      outline: none;
+      min-width: 200px;
+      text-align: left;
     }
-    .fy-search-input:focus {
-      border-color: #f5d742;
+    .fy-search-display {
+      color: #e0e0e0;
     }
-    .fy-search-input::placeholder {
-      color: #555;
+    .fy-cursor {
+      display: inline-block;
+      width: 8px;
+      height: 18px;
+      background: #e2b714;
+      vertical-align: text-bottom;
+      animation: fy-blink 1s step-end infinite;
+    }
+    @keyframes fy-blink {
+      50% { opacity: 0; }
     }
     .fy-no-matches {
       color: #ff6b6b;
       font-family: monospace;
       font-size: 12px;
-      padding: 4px 12px 0;
-      text-align: center;
+      padding: 4px 0 0;
     }
     .fy-hint-label {
       position: fixed;
@@ -370,20 +390,10 @@ function getShadowStyles() {
       color: #888;
       font-family: monospace;
       font-size: 11px;
-      padding: 4px 12px 0;
-      text-align: center;
+      padding: 4px 0 0;
     }
   `;
 }
 
-document.addEventListener("keydown", (e) => {
-  if (e.code === "KeyB" && e.metaKey && e.ctrlKey && e.altKey && e.shiftKey) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (state === "INACTIVE") {
-      activate();
-    } else {
-      deactivate();
-    }
-  }
-});
+// Single capturing listener — registered before Vimium can interfere
+document.addEventListener("keydown", handleKey, true);
