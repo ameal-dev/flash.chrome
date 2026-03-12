@@ -125,6 +125,27 @@ function findVisibleMatches(query) {
   return matches;
 }
 
+function generateHintLabels(count) {
+  const labels = [];
+  const chars = HINT_CHARS.split("");
+
+  // Single-char labels first
+  for (const c of chars) {
+    labels.push(c);
+    if (labels.length >= count) return labels;
+  }
+
+  // Two-char labels
+  for (const c1 of chars) {
+    for (const c2 of chars) {
+      labels.push(c1 + c2);
+      if (labels.length >= count) return labels;
+    }
+  }
+
+  return labels;
+}
+
 function handleSearchInput(e) {
   // Will be implemented in Task 5
 }
