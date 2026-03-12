@@ -17,10 +17,6 @@
   ],
   "commands": {
     "activate": {
-      "suggested_key": {
-        "default": "Ctrl+Shift+Alt+B",
-        "mac": "Command+Shift+Alt+Ctrl+B"
-      },
       "description": "Activate Flash Yank search"
     }
   },
