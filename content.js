@@ -37,8 +37,10 @@ function activate() {
   shadowRoot.appendChild(searchBar);
   document.body.appendChild(shadowHost);
 
-  searchInput.addEventListener("keydown", handleSearchKeydown);
   searchInput.addEventListener("input", handleSearchInput);
+  document.addEventListener("keydown", suppressKeydown, true);
+  document.addEventListener("keypress", suppressEvent, true);
+  document.addEventListener("keyup", suppressEvent, true);
   searchInput.focus();
 
   scrollHandler = () => deactivate();
@@ -47,7 +49,21 @@ function activate() {
   state = "SEARCH";
 }
 
+function suppressKeydown(e) {
+  if (state === "INACTIVE") return;
+  e.stopImmediatePropagation();
+  handleSearchKeydown(e);
+}
+
+function suppressEvent(e) {
+  if (state === "INACTIVE") return;
+  e.stopImmediatePropagation();
+}
+
 function deactivate() {
+  document.removeEventListener("keydown", suppressKeydown, true);
+  document.removeEventListener("keypress", suppressEvent, true);
+  document.removeEventListener("keyup", suppressEvent, true);
   if (scrollHandler) {
     window.removeEventListener("scroll", scrollHandler);
     scrollHandler = null;
@@ -62,8 +78,6 @@ function deactivate() {
 }
 
 function handleSearchKeydown(e) {
-  e.stopPropagation();
-
   if (e.key === "Escape") {
     e.preventDefault();
     deactivate();
