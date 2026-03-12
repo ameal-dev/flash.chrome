@@ -157,6 +157,7 @@ function handleKey(e) {
     if (e.key === "Backspace") {
       if (hintInput.length > 0) {
         hintInput = hintInput.slice(0, -1);
+        updateSearchDisplay();
         updateHintHighlights();
       } else {
         // Backspace into search query
@@ -182,6 +183,7 @@ function handleKey(e) {
         const hasPrefix = hintLabels.some((label) => label.startsWith(candidateHint));
         if (hasPrefix) {
           hintInput = candidateHint;
+          updateSearchDisplay();
           updateHintHighlights();
           return;
         }
@@ -219,7 +221,24 @@ function handleVisualKey(key) {
   const moveFn = VISUAL_MOVEMENTS[key];
   if (moveFn) {
     moveFn(selection);
+    updateCaretIndicator(selection);
   }
+}
+
+function updateCaretIndicator(selection) {
+  if (!caretIndicator || !selection.rangeCount) return;
+
+  // Position caret at the focus (moving end) of the selection
+  const range = document.createRange();
+  range.setStart(selection.focusNode, selection.focusOffset);
+  range.setEnd(selection.focusNode, selection.focusOffset);
+  const rect = range.getBoundingClientRect();
+
+  if (rect.top === 0 && rect.left === 0 && rect.height === 0) return;
+
+  caretIndicator.style.top = `${rect.top}px`;
+  caretIndicator.style.left = `${rect.left}px`;
+  caretIndicator.style.height = `${rect.height || 18}px`;
 }
 
 function yankSelection(selection) {
@@ -270,7 +289,19 @@ const VISUAL_MOVEMENTS = {
 
 function updateSearchDisplay() {
   if (!searchDisplay) return;
-  searchDisplay.textContent = searchQuery || "";
+  if (hintInput) {
+    // Show search query and hint input separately styled
+    searchDisplay.innerHTML = "";
+    const querySpan = document.createElement("span");
+    querySpan.textContent = searchQuery;
+    const hintSpan = document.createElement("span");
+    hintSpan.textContent = hintInput;
+    hintSpan.style.color = "#d4860b";
+    searchDisplay.appendChild(querySpan);
+    searchDisplay.appendChild(hintSpan);
+  } else {
+    searchDisplay.textContent = searchQuery || "";
+  }
 }
 
 function onQueryChanged() {
