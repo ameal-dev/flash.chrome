@@ -12,6 +12,8 @@ let hintLabels = [];
 let hintInput = "";
 let scrollHandler = null;
 let vimiumDecoy = null;
+let visualAnchor = null; // {node, offset} where caret was placed
+let statusBar = null;
 
 function activate() {
   if (state !== "INACTIVE") return;
@@ -41,8 +43,6 @@ function activate() {
 
   searchQuery = "";
 
-  // Create a real input in the page DOM so Vimium sees a focused
-  // input and enters insert mode (stops intercepting keys)
   vimiumDecoy = document.createElement("input");
   vimiumDecoy.style.cssText = "position:fixed;top:-100px;left:-100px;width:1px;height:1px;opacity:0;pointer-events:none;";
   document.body.appendChild(vimiumDecoy);
@@ -52,6 +52,26 @@ function activate() {
   window.addEventListener("scroll", scrollHandler, { once: true });
 
   state = "SEARCH";
+}
+
+function enterVisualMode(textNode, offset) {
+  // Clean up search UI but keep shadowHost for status bar
+  clearOverlays();
+  const searchBar = shadowRoot.querySelector(".fy-search-bar");
+  if (searchBar) searchBar.remove();
+
+  // Place caret
+  const selection = window.getSelection();
+  selection.collapse(textNode, offset);
+  visualAnchor = { node: textNode, offset };
+
+  // Show status bar
+  statusBar = document.createElement("div");
+  statusBar.className = "fy-status-bar";
+  statusBar.textContent = "-- VISUAL -- move: w b e h l j k  yank: y  escape: quit";
+  shadowRoot.appendChild(statusBar);
+
+  state = "VISUAL";
 }
 
 function deactivate() {
@@ -73,11 +93,12 @@ function deactivate() {
   currentMatches = [];
   hintLabels = [];
   hintInput = "";
+  visualAnchor = null;
+  statusBar = null;
   state = "INACTIVE";
 }
 
 function handleKey(e) {
-  // Activation toggle — always listen
   if (e.code === "KeyB" && e.metaKey && e.ctrlKey && e.altKey && e.shiftKey) {
     e.preventDefault();
     e.stopImmediatePropagation();
@@ -91,11 +112,13 @@ function handleKey(e) {
 
   if (state === "INACTIVE") return;
 
-  // From here, we're active — block everything from reaching Vimium
   e.preventDefault();
   e.stopImmediatePropagation();
 
   if (e.key === "Escape") {
+    if (state === "VISUAL") {
+      window.getSelection().removeAllRanges();
+    }
     deactivate();
     return;
   }
@@ -108,7 +131,6 @@ function handleKey(e) {
       return;
     }
 
-    // Only accept single printable characters
     if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
       searchQuery += e.key;
       updateSearchDisplay();
@@ -146,8 +168,80 @@ function handleKey(e) {
     }
 
     updateHintHighlights();
+    return;
+  }
+
+  if (state === "VISUAL") {
+    handleVisualKey(e.key);
   }
 }
+
+// --- Visual mode ---
+
+function handleVisualKey(key) {
+  const selection = window.getSelection();
+  if (!selection.rangeCount) {
+    deactivate();
+    return;
+  }
+
+  if (key === "y") {
+    yankSelection(selection);
+    return;
+  }
+
+  // Movement keys extend the selection
+  const moveFn = VISUAL_MOVEMENTS[key];
+  if (moveFn) {
+    moveFn(selection);
+  }
+}
+
+function yankSelection(selection) {
+  const text = selection.toString();
+  if (text) {
+    navigator.clipboard.writeText(text).then(() => {
+      showYankFeedback(text.length);
+    }).catch(() => {
+      // Fallback: execCommand
+      document.execCommand("copy");
+      showYankFeedback(text.length);
+    });
+  }
+  selection.removeAllRanges();
+  deactivate();
+}
+
+function showYankFeedback(charCount) {
+  const el = document.createElement("div");
+  el.style.cssText = "position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:2147483647;padding:6px 16px;background:#1a1a2e;color:#e2b714;font-family:monospace;font-size:14px;border-bottom-left-radius:8px;border-bottom-right-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,0.4);";
+  el.textContent = `Yanked ${charCount} chars`;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 1200);
+}
+
+function moveSelection(selection, direction, granularity) {
+  selection.modify("extend", direction, granularity);
+}
+
+const VISUAL_MOVEMENTS = {
+  l: (sel) => moveSelection(sel, "forward", "character"),
+  h: (sel) => moveSelection(sel, "backward", "character"),
+  w: (sel) => moveSelection(sel, "forward", "word"),
+  b: (sel) => moveSelection(sel, "backward", "word"),
+  e: (sel) => {
+    // forward to end of word: move forward by word, then back one char
+    // selection.modify "forward" "word" goes to start of next word
+    // so we do forward word then backward character to land at word end
+    moveSelection(sel, "forward", "word");
+  },
+  j: (sel) => moveSelection(sel, "forward", "line"),
+  k: (sel) => moveSelection(sel, "backward", "line"),
+  "0": (sel) => moveSelection(sel, "backward", "lineboundary"),
+  $: (sel) => moveSelection(sel, "forward", "lineboundary"),
+};
+
+// --- Search/hint functions ---
 
 function updateSearchDisplay() {
   if (!searchDisplay) return;
@@ -192,19 +286,7 @@ function updateHintHighlights() {
 }
 
 function selectMatch(match) {
-  const textNode = match.textNode;
-  const offset = match.offset;
-  deactivate();
-  const selection = window.getSelection();
-  selection.collapse(textNode, offset);
-
-  // Trigger Vimium's visual mode by simulating 'v' keypress
-  // Small delay to let Vimium exit insert mode after decoy removal
-  setTimeout(() => {
-    document.dispatchEvent(new KeyboardEvent("keydown", {
-      key: "v", code: "KeyV", keyCode: 86, bubbles: true,
-    }));
-  }, 50);
+  enterVisualMode(match.textNode, match.offset);
 }
 
 function clearOverlays() {
@@ -259,6 +341,8 @@ function exitHintMode() {
   hintInput = "";
   state = "SEARCH";
 }
+
+// --- Text matching ---
 
 const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT"]);
 
@@ -347,6 +431,8 @@ function generateHintLabels(count) {
   return labels;
 }
 
+// --- Styles ---
+
 function getShadowStyles() {
   return `
     .fy-search-bar {
@@ -413,10 +499,24 @@ function getShadowStyles() {
       font-size: 11px;
       padding: 4px 0 0;
     }
+    .fy-status-bar {
+      position: fixed;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 2147483647;
+      padding: 6px 16px;
+      background: #1a1a2e;
+      color: #e2b714;
+      font-family: monospace;
+      font-size: 13px;
+      border-top-left-radius: 8px;
+      border-top-right-radius: 8px;
+      box-shadow: 0 -2px 12px rgba(0,0,0,0.4);
+      white-space: nowrap;
+    }
   `;
 }
 
-// Register on window (not document) in capture phase.
-// Capture order is window → document → elements.
-// Vimium registers on document, so window fires first.
+// Register on window in capture phase — fires before Vimium's document listeners
 window.addEventListener("keydown", handleKey, true);
