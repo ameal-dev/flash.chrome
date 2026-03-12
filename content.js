@@ -1,10 +1,15 @@
 const HINT_CHARS = "asdfghjkl";
 const MIN_SEARCH_LENGTH = 2;
 
+const MAX_HINTS = 81;
+
 let state = "INACTIVE";
 let shadowHost = null;
 let shadowRoot = null;
 let searchInput = null;
+let currentMatches = [];
+let hintLabels = [];
+let hintInput = "";
 
 function activate() {
   if (state !== "INACTIVE") return;
@@ -50,10 +55,122 @@ function deactivate() {
 
 function handleSearchKeydown(e) {
   e.stopPropagation();
+
   if (e.key === "Escape") {
     e.preventDefault();
     deactivate();
+    return;
   }
+
+  if (state === "HINT_SELECTION") {
+    e.preventDefault();
+
+    if (e.key === "Backspace") {
+      if (hintInput.length > 0) {
+        hintInput = hintInput.slice(0, -1);
+        updateHintHighlights();
+      } else {
+        // Return to search mode (keep current query intact)
+        exitHintMode();
+      }
+      return;
+    }
+
+    const char = e.key.toLowerCase();
+    if (!HINT_CHARS.includes(char)) return;
+
+    hintInput += char;
+
+    const exactMatch = hintLabels.findIndex((label) => label === hintInput);
+    if (exactMatch !== -1) {
+      selectMatch(currentMatches[exactMatch]);
+      return;
+    }
+
+    // Check if input is a prefix of any remaining label
+    const hasPrefix = hintLabels.some((label) => label.startsWith(hintInput));
+    if (!hasPrefix) {
+      hintInput = hintInput.slice(0, -1);
+      return;
+    }
+
+    updateHintHighlights();
+  }
+}
+
+function updateHintHighlights() {
+  const labels = shadowRoot.querySelectorAll(".fy-hint-label");
+  labels.forEach((el, i) => {
+    const label = hintLabels[i];
+    if (hintInput && !label.startsWith(hintInput)) {
+      el.style.opacity = "0.2";
+    } else {
+      el.style.opacity = "1";
+    }
+  });
+}
+
+function selectMatch(match) {
+  deactivate();
+  const selection = window.getSelection();
+  selection.collapse(match.textNode, match.offset);
+}
+
+function clearOverlays() {
+  if (!shadowRoot) return;
+  shadowRoot.querySelectorAll(".fy-hint-label, .fy-highlight, .fy-no-matches, .fy-overflow-msg").forEach((el) => el.remove());
+}
+
+function renderHints(matches) {
+  const count = Math.min(matches.length, MAX_HINTS);
+  hintLabels = generateHintLabels(count);
+
+  for (let i = 0; i < count; i++) {
+    const match = matches[i];
+    const rect = match.rect;
+
+    // Highlight overlay
+    const highlight = document.createElement("div");
+    highlight.className = "fy-highlight";
+    highlight.style.top = `${rect.top}px`;
+    highlight.style.left = `${rect.left}px`;
+    highlight.style.width = `${rect.width}px`;
+    highlight.style.height = `${rect.height}px`;
+    shadowRoot.appendChild(highlight);
+
+    // Hint label
+    const label = document.createElement("div");
+    label.className = "fy-hint-label";
+    label.textContent = hintLabels[i].toUpperCase();
+    label.style.top = `${rect.top - 16}px`;
+    label.style.left = `${rect.left}px`;
+    shadowRoot.appendChild(label);
+  }
+
+  if (matches.length > MAX_HINTS) {
+    const msg = document.createElement("div");
+    msg.className = "fy-overflow-msg";
+    msg.textContent = `${matches.length - MAX_HINTS} more — refine your search`;
+    shadowRoot.querySelector(".fy-search-bar").appendChild(msg);
+  }
+}
+
+function enterHintMode(matches) {
+  clearOverlays();
+  currentMatches = matches;
+  hintInput = "";
+  renderHints(matches);
+  searchInput.readOnly = true;
+  state = "HINT_SELECTION";
+}
+
+function exitHintMode() {
+  clearOverlays();
+  currentMatches = [];
+  hintLabels = [];
+  hintInput = "";
+  searchInput.readOnly = false;
+  state = "SEARCH";
 }
 
 const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT"]);
@@ -147,7 +264,25 @@ function generateHintLabels(count) {
 }
 
 function handleSearchInput(e) {
-  // Will be implemented in Task 5
+  const query = searchInput.value;
+  if (query.length < MIN_SEARCH_LENGTH) {
+    if (state === "HINT_SELECTION") {
+      exitHintMode();
+    }
+    return;
+  }
+
+  const matches = findVisibleMatches(query);
+  if (matches.length === 0) {
+    clearOverlays();
+    const msg = document.createElement("div");
+    msg.className = "fy-no-matches";
+    msg.textContent = "No matches";
+    shadowRoot.querySelector(".fy-search-bar").appendChild(msg);
+    return;
+  }
+
+  enterHintMode(matches);
 }
 
 function getShadowStyles() {
