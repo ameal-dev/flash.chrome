@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Flash Yank",
+  "name": "flash.chrome",
   "version": "0.1.0",
   "description": "EasyMotion-style text jumping for Chrome. Works with Vimium for visual selection and yanking.",
   "permissions": [],

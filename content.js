@@ -20,7 +20,7 @@ function activate() {
   if (state !== "INACTIVE") return;
 
   shadowHost = document.createElement("div");
-  shadowHost.id = "flash-yank-host";
+  shadowHost.id = "flash-chrome-host";
   shadowRoot = shadowHost.attachShadow({ mode: "closed" });
 
   const style = document.createElement("style");
@@ -81,7 +81,7 @@ function enterVisualMode(textNode, offset) {
   // Show status bar
   statusBar = document.createElement("div");
   statusBar.className = "fy-status-bar";
-  statusBar.textContent = "-- VISUAL -- move: w b e h l j k  yank: y  escape: quit";
+  statusBar.textContent = "-- VISUAL -- w/W b/B e/E h l j k 0 $  V: line  y: yank  esc: quit";
   shadowRoot.appendChild(statusBar);
 
   state = "VISUAL";
@@ -217,6 +217,15 @@ function handleVisualKey(key) {
     return;
   }
 
+  if (key === "V") {
+    selection.collapse(visualAnchor.node, visualAnchor.offset);
+    selection.modify("move", "backward", "lineboundary");
+    selection.modify("extend", "forward", "lineboundary");
+    if (statusBar) statusBar.textContent = "-- VISUAL LINE -- y: yank  esc: quit";
+    updateCaretIndicator(selection);
+    return;
+  }
+
   // Movement keys extend the selection
   const moveFn = VISUAL_MOVEMENTS[key];
   if (moveFn) {
@@ -268,16 +277,56 @@ function moveSelection(selection, direction, granularity) {
   selection.modify("extend", direction, granularity);
 }
 
+// WORD motion helpers (whitespace-delimited, like Vim's W/B/E)
+function isWs(ch) { return ch != null && /\s/.test(ch); }
+
+function charAtFocus(sel) {
+  const n = sel.focusNode;
+  if (n && n.nodeType === Node.TEXT_NODE && sel.focusOffset < n.textContent.length) {
+    return n.textContent[sel.focusOffset];
+  }
+  return null;
+}
+
+function charBeforeFocus(sel) {
+  const n = sel.focusNode;
+  if (n && n.nodeType === Node.TEXT_NODE && sel.focusOffset > 0) {
+    return n.textContent[sel.focusOffset - 1];
+  }
+  return null;
+}
+
+function focusMoved(sel, node, offset) {
+  return sel.focusNode !== node || sel.focusOffset !== offset;
+}
+
+function extendWhile(sel, direction, predicate) {
+  const charFn = direction === "forward" ? charAtFocus : charBeforeFocus;
+  const MAX = 500;
+  for (let i = 0; i < MAX && predicate(charFn(sel)); i++) {
+    const pn = sel.focusNode, po = sel.focusOffset;
+    sel.modify("extend", direction, "character");
+    if (!focusMoved(sel, pn, po)) return;
+  }
+}
+
 const VISUAL_MOVEMENTS = {
   l: (sel) => moveSelection(sel, "forward", "character"),
   h: (sel) => moveSelection(sel, "backward", "character"),
   w: (sel) => moveSelection(sel, "forward", "word"),
   b: (sel) => moveSelection(sel, "backward", "word"),
-  e: (sel) => {
-    // forward to end of word: move forward by word, then back one char
-    // selection.modify "forward" "word" goes to start of next word
-    // so we do forward word then backward character to land at word end
-    moveSelection(sel, "forward", "word");
+  e: (sel) => moveSelection(sel, "forward", "word"),
+  W: (sel) => {
+    extendWhile(sel, "forward", (ch) => ch != null && !isWs(ch));
+    extendWhile(sel, "forward", isWs);
+  },
+  B: (sel) => {
+    extendWhile(sel, "backward", isWs);
+    extendWhile(sel, "backward", (ch) => ch != null && !isWs(ch));
+  },
+  E: (sel) => {
+    extendWhile(sel, "forward", isWs);
+    extendWhile(sel, "forward", (ch) => ch != null && !isWs(ch));
   },
   j: (sel) => moveSelection(sel, "forward", "line"),
   k: (sel) => moveSelection(sel, "backward", "line"),
@@ -469,22 +518,29 @@ function findVisibleMatches(query) {
 }
 
 function generateHintLabels(count) {
-  const labels = [];
   const chars = HINT_CHARS.split("");
+  const C = chars.length;
+  const labels = [];
 
-  for (const c of chars) {
-    labels.push(c);
-    if (labels.length >= count) return labels;
+  if (count <= C) {
+    for (let i = 0; i < count; i++) labels.push(chars[i]);
+    return labels;
   }
 
-  for (const c1 of chars) {
-    for (const c2 of chars) {
-      labels.push(c1 + c2);
-      if (labels.length >= count) return labels;
+  // Minimum prefix chars P such that (C - P) + P*C >= count
+  const P = Math.ceil((count - C) / (C - 1));
+
+  // Leaf chars: standalone single-char labels (never used as a two-char prefix)
+  for (let i = 0; i < C - P; i++) labels.push(chars[i]);
+
+  // Prefix chars: each paired with all chars to form two-char labels
+  for (let i = C - P; i < C; i++) {
+    for (let j = 0; j < C; j++) {
+      labels.push(chars[i] + chars[j]);
     }
   }
 
-  return labels;
+  return labels.slice(0, count);
 }
 
 // --- Styles ---
