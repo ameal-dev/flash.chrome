@@ -277,37 +277,22 @@ function moveSelection(selection, direction, granularity) {
   selection.modify("extend", direction, granularity);
 }
 
-// WORD motion helpers (whitespace-delimited, like Vim's W/B/E)
-function isWs(ch) { return ch != null && /\s/.test(ch); }
-
-function charAtFocus(sel) {
-  const n = sel.focusNode;
-  if (n && n.nodeType === Node.TEXT_NODE && sel.focusOffset < n.textContent.length) {
-    return n.textContent[sel.focusOffset];
-  }
-  return null;
+function getTextForward(sel) {
+  try {
+    const range = document.createRange();
+    range.setStart(sel.focusNode, sel.focusOffset);
+    range.setEndAfter(document.body.lastChild);
+    return range.toString().slice(0, 1000);
+  } catch (e) { return ""; }
 }
 
-function charBeforeFocus(sel) {
-  const n = sel.focusNode;
-  if (n && n.nodeType === Node.TEXT_NODE && sel.focusOffset > 0) {
-    return n.textContent[sel.focusOffset - 1];
-  }
-  return null;
-}
-
-function focusMoved(sel, node, offset) {
-  return sel.focusNode !== node || sel.focusOffset !== offset;
-}
-
-function extendWhile(sel, direction, predicate) {
-  const charFn = direction === "forward" ? charAtFocus : charBeforeFocus;
-  const MAX = 500;
-  for (let i = 0; i < MAX && predicate(charFn(sel)); i++) {
-    const pn = sel.focusNode, po = sel.focusOffset;
-    sel.modify("extend", direction, "character");
-    if (!focusMoved(sel, pn, po)) return;
-  }
+function getTextBackward(sel) {
+  try {
+    const range = document.createRange();
+    range.setStartBefore(document.body.firstChild);
+    range.setEnd(sel.focusNode, sel.focusOffset);
+    return range.toString().slice(-1000);
+  } catch (e) { return ""; }
 }
 
 const VISUAL_MOVEMENTS = {
@@ -317,21 +302,36 @@ const VISUAL_MOVEMENTS = {
   b: (sel) => moveSelection(sel, "backward", "word"),
   e: (sel) => moveSelection(sel, "forward", "word"),
   W: (sel) => {
-    extendWhile(sel, "forward", (ch) => ch != null && !isWs(ch));
-    extendWhile(sel, "forward", isWs);
-  },
-  B: (sel) => {
-    extendWhile(sel, "backward", isWs);
-    extendWhile(sel, "backward", (ch) => ch != null && !isWs(ch));
+    const text = getTextForward(sel);
+    let i = 0;
+    while (i < text.length && !/\s/.test(text[i])) i++;
+    while (i < text.length && /\s/.test(text[i])) i++;
+    for (let j = 0; j < i; j++) sel.modify("extend", "forward", "character");
   },
   E: (sel) => {
-    extendWhile(sel, "forward", isWs);
-    extendWhile(sel, "forward", (ch) => ch != null && !isWs(ch));
+    const text = getTextForward(sel);
+    let i = 0;
+    while (i < text.length && /\s/.test(text[i])) i++;
+    while (i < text.length && !/\s/.test(text[i])) i++;
+    for (let j = 0; j < i; j++) sel.modify("extend", "forward", "character");
+  },
+  B: (sel) => {
+    const text = getTextBackward(sel);
+    let i = 0, len = text.length;
+    while (i < len && /\s/.test(text[len - 1 - i])) i++;
+    while (i < len && !/\s/.test(text[len - 1 - i])) i++;
+    for (let j = 0; j < i; j++) sel.modify("extend", "backward", "character");
   },
   j: (sel) => moveSelection(sel, "forward", "line"),
   k: (sel) => moveSelection(sel, "backward", "line"),
   "0": (sel) => moveSelection(sel, "backward", "lineboundary"),
-  $: (sel) => moveSelection(sel, "forward", "lineboundary"),
+  $: (sel) => {
+    sel.modify("extend", "forward", "lineboundary");
+    const trailing = sel.toString().match(/\s+$/);
+    if (trailing) {
+      for (let i = 0; i < trailing[0].length; i++) sel.modify("extend", "backward", "character");
+    }
+  },
 };
 
 // --- Search/hint functions ---
